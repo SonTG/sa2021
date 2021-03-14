@@ -3,7 +3,7 @@
 #include <string.h>
 #include <signal.h>
 #include <stdlib.h>
-
+#include <fcntl.h>
 
 int childpid;
 
@@ -56,13 +56,23 @@ int main(void) {
 		}
 
 		for (int i = 0; i < argc; i++) {
-			printf("%d arg %s\n", i, args[i]);
+			printf("%d arg '%s'\n", i, args[i]);
+		}
+
+		// detect if we have a write redirection > 
+		int writePos = -1;
+		for (int i = 0; i < argc; i++) {
+			if (args[i] && strcmp(args[i], ">") == 0) {
+				writePos = i;
+				args[i] = 0;
+				break;		// one write at the moment only
+			}
 		}
 
 		// detect if we have a pipe |
 		int pipePos = -1;
 		for (int i = 0; i < argc; i++) {
-			if (strcmp(args[i], "|") == 0) {
+			if (args[i] && strcmp(args[i], "|") == 0) {
 				pipePos = i;
 				args[i] = 0;
 				break;		// one pipe at the moment only
@@ -71,6 +81,15 @@ int main(void) {
 
 		if (pipePos < 0) {
 			// no pipe, run as usual
+
+			// if we have a redirect?
+			int outputFd = -1;
+			if (writePos > 0) {
+				// create an output file for this one
+				outputFd = creat(args[writePos + 1], O_CREAT | O_TRUNC | O_WRONLY |
+					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+			}
+
 			int pid = fork();
 			if (pid) {
 				// parent
@@ -78,7 +97,11 @@ int main(void) {
 				waitpid(pid, NULL, 0);
 			}
 			else {
-				// child, exec				
+				// child, exec
+				if (outputFd > 0) {
+					printf("child, redirecting to fd %d...\n", outputFd);
+					dup2(outputFd, 1);
+				}				
 				execvp(args[0], args);
 			}
 		}
